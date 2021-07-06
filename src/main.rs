@@ -42,7 +42,7 @@ static MIN_LEN: u64 = 3;
 
 fn main() -> std::io::Result<()> {
     //let f = "res/valid-utf8-one-of-each-length-char.bin";
-    let f = "../../../eboot-fdec.self.elf";
+    let f = "../../wip/eboot-fdec.self.elf";
     let fh = File::open(f)?;
     let reader = BufReader::new(fh);
     let mut cursor = FileCursor {
@@ -72,7 +72,7 @@ fn process_byte(mut cursor: FileCursor, byte: u8) -> std::io::Result<FileCursor>
             cursor = end_string(cursor)?;
         }
         cursor = cursor_reset_string(cursor);
-    } else if is_ascii(byte) {
+    } else if is_non_control_ascii(byte) {
         cursor.str_bytelen += 1;
         cursor.str_char_num += 1;
     } else {
@@ -95,7 +95,7 @@ fn end_string(mut cursor: FileCursor) -> std::io::Result<FileCursor> {
         let mut bytestr = vec![0; cursor.str_bytelen.try_into().unwrap()];
         cursor.reader.read_exact(&mut bytestr[..]);
         cursor.reader.seek(SeekFrom::Current((cursor.succeeding_nulls+1).try_into().unwrap()));
-        println!("0x{:08x}  0x{:04x}    {}  {}  {:?}", cursor.str_start, cursor.str_bytelen, cursor.str_char_num, cursor.succeeding_nulls, String::from_utf8_lossy(&bytestr));
+        println!("0x{:08x},0x{:04x},{:03},{:03},{:?}", cursor.str_start, cursor.str_bytelen, cursor.str_char_num, cursor.succeeding_nulls, String::from_utf8_lossy(&bytestr));
     }
     Ok(cursor)
 }
@@ -167,6 +167,12 @@ fn cursor_reset_string(mut cursor: FileCursor) -> FileCursor {
 
 fn is_ascii(byte: u8) -> bool {
     !bit_at(byte, 7)
+}
+
+// allows newlines and carriage returns
+// disallows all other control characters
+fn is_non_control_ascii(byte: u8) -> bool {
+    !bit_at(byte, 7) && byte >= 0x20 || byte == 0x0A || byte == 0x0D
 }
 
 // i must be 0-7 (LSB-MSB) inclusive
