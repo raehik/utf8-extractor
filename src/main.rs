@@ -2,8 +2,24 @@
 We don't aim to be perfect and check for invalid overlong encodings. But we do
 due diligence.
 
-TODO option: disallow ASCII control characters
-TODO option: minimum length
+TODO:
+  * option: disallow ASCII control characters
+  * refactor: state machine instead of stateful mess
+
+State machine:
+  * New char
+    * 0x00 -> Null byte
+    * ASCII -> New char (append)
+    * Leading byte -> Multibyte char
+    * _ -> New char (invalidate)
+  * Multibyte char
+    * Continuation byte -> Multibyte char
+    * _ -> New char (invalidate)
+  * Null byte
+    * 0x00 -> Null byte (update)
+    * _    -> New char (emit, roll back)
+
+Mehhhh bit more complicated. Later.
 */
 
 use std::io::BufReader;
@@ -19,6 +35,7 @@ struct FileCursor {
     str_start: u64,
     str_bytelen: u64,
     str_char_num: u64,
+    succeeding_nulls: u64,
 }
 
 static MIN_LEN: u64 = 3;
@@ -33,6 +50,7 @@ fn main() -> std::io::Result<()> {
         str_start: 0,
         str_bytelen: 0,
         str_char_num: 0,
+        succeeding_nulls: 0,
     };
 
     loop {
@@ -51,17 +69,9 @@ fn main() -> std::io::Result<()> {
 fn process_byte(mut cursor: FileCursor, byte: u8) -> std::io::Result<FileCursor> {
     if byte == 0x00 {
         if cursor.str_char_num != 0 {
-            if cursor.str_char_num >= MIN_LEN {
-                cursor.reader.seek(SeekFrom::Start(cursor.str_start));
-                let mut bytestr = vec![0; cursor.str_bytelen.try_into().unwrap()];
-                cursor.reader.read_exact(&mut bytestr[..]);
-                cursor.reader.seek(SeekFrom::Current(1));
-                println!("0x{:08x}  0x{:04x}    {}  {:?}", cursor.str_start, cursor.str_bytelen, cursor.str_char_num, String::from_utf8_lossy(&bytestr));
-            }
-            cursor = cursor_reset_string(cursor);
-        } else {
-            cursor.str_start += 1; // due to prev checks, no need to full reset
+            cursor = end_string(cursor)?;
         }
+        cursor = cursor_reset_string(cursor);
     } else if is_ascii(byte) {
         cursor.str_bytelen += 1;
         cursor.str_char_num += 1;
@@ -77,6 +87,38 @@ fn process_byte(mut cursor: FileCursor, byte: u8) -> std::io::Result<FileCursor>
     };
     Ok(cursor)
 }
+
+fn end_string(mut cursor: FileCursor) -> std::io::Result<FileCursor> {
+    if cursor.str_char_num >= MIN_LEN {
+        cursor = consume_succeeding_nulls(cursor)?;
+        cursor.reader.seek(SeekFrom::Start(cursor.str_start));
+        let mut bytestr = vec![0; cursor.str_bytelen.try_into().unwrap()];
+        cursor.reader.read_exact(&mut bytestr[..]);
+        cursor.reader.seek(SeekFrom::Current((cursor.succeeding_nulls+1).try_into().unwrap()));
+        println!("0x{:08x}  0x{:04x}    {}  {}  {:?}", cursor.str_start, cursor.str_bytelen, cursor.str_char_num, cursor.succeeding_nulls, String::from_utf8_lossy(&bytestr));
+    }
+    Ok(cursor)
+}
+
+// TODO is a 1-byte readahead, but we DON'T clean up our cursor because the next
+// function does an absolute seek
+fn consume_succeeding_nulls(mut cursor: FileCursor) -> std::io::Result<FileCursor> {
+    loop {
+        let mut byte: u8 = 0x00;
+        let bytes_read = cursor.reader.read(slice::from_mut(&mut byte))?;
+        if bytes_read == 0 {
+            break;
+        } else {
+            if byte == 0x00 {
+                cursor.succeeding_nulls += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    Ok(cursor)
+}
+
 
 // cont_bytes must be 0-3 inclusive
 fn process_multibyte_char(mut cursor: FileCursor, cont_bytes: u8) -> std::io::Result<FileCursor> {
@@ -116,9 +158,10 @@ fn try_get_utf8_multibyte_len(byte: u8) -> Option<u8> {
 }
 
 fn cursor_reset_string(mut cursor: FileCursor) -> FileCursor {
-    cursor.str_start += cursor.str_bytelen+1;
+    cursor.str_start += cursor.str_bytelen+cursor.succeeding_nulls+1;
     cursor.str_bytelen = 0;
     cursor.str_char_num = 0;
+    cursor.succeeding_nulls = 0;
     cursor
 }
 
