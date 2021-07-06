@@ -1,14 +1,9 @@
 /*
-TODO:
-  * actually it's a little bit more complex if you want to be perfect, should
-    just check value lol, much easier
-  * https://www.fileformat.info/info/unicode/utf8.htm
-  * https://www.cl.cam.ac.uk/~mgk25/ucs/examples/UTF-8-test.txt
-  * https://en.wikipedia.org/wiki/UTF-8
-  * https://stackoverflow.com/questions/1301402/example-invalid-utf8-string
-
 We don't aim to be perfect and check for invalid overlong encodings. But we do
 due diligence.
+
+TODO option: disallow ASCII control characters
+TODO option: minimum length
 */
 
 use std::io::BufReader;
@@ -27,8 +22,9 @@ struct FileCursor {
 }
 
 fn main() -> std::io::Result<()> {
-    let f = File::open("res/valid-utf8-one-of-each-length-char.bin")?;
-    let reader = BufReader::new(f);
+    let f = "res/valid-utf8-one-of-each-length-char.bin";
+    let fh = File::open(f)?;
+    let reader = BufReader::new(fh);
     let mut cursor = FileCursor {
         reader: reader,
         str_start: 0,
@@ -55,8 +51,7 @@ fn process_byte(mut cursor: FileCursor, byte: u8) -> std::io::Result<FileCursor>
         let mut bytestr = vec![0; cursor.str_bytelen.try_into().unwrap()];
         cursor.reader.read_exact(&mut bytestr[..]);
         cursor.reader.seek(SeekFrom::Current(1));
-        println!("0x{:08x}  0x{:04x}    {}", cursor.str_start, cursor.str_bytelen, cursor.str_char_num);
-        println!("{:?}", bytestr);
+        println!("0x{:08x}  0x{:04x}    {}  {}", cursor.str_start, cursor.str_bytelen, cursor.str_char_num, String::from_utf8_lossy(&bytestr));
         cursor = cursor_reset_string(cursor);
     } else if is_ascii(byte) {
         cursor.str_bytelen += 1;
@@ -65,7 +60,6 @@ fn process_byte(mut cursor: FileCursor, byte: u8) -> std::io::Result<FileCursor>
         match try_get_utf8_multibyte_len(byte) {
             None => cursor = cursor_reset_string(cursor),
             Some(cont_bytes) => {
-                println!("multibyte: {}", cont_bytes);
                 // do the bookkeeping early, overwrite if error
                 // TODO instead, return an Option wrapped in an io::Result
                 cursor.str_bytelen += u64::from(cont_bytes+1);
