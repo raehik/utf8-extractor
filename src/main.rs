@@ -69,8 +69,9 @@ fn process_byte(mut cursor: FileCursor, byte: u8) -> std::io::Result<FileCursor>
         match try_get_utf8_multibyte_len(byte) {
             None => cursor = cursor_reset_string(cursor),
             Some(cont_bytes) => {
-                cursor = process_multibyte_char(cursor, cont_bytes)?;
                 cursor.str_bytelen += 1;
+                cursor.str_char_num += 1;
+                cursor = process_multibyte_char(cursor, cont_bytes)?;
             },
         };
     };
@@ -93,7 +94,6 @@ fn process_multibyte_char(mut cursor: FileCursor, cont_bytes: u8) -> std::io::Re
             cursor.str_bytelen += 1;
         }
     }
-    cursor.str_char_num += 1;
     Ok(cursor)
 }
 
