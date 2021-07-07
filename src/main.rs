@@ -41,8 +41,8 @@ struct FileCursor {
 static MIN_LEN: u64 = 3;
 
 fn main() -> std::io::Result<()> {
-    //let f = "res/valid-utf8-one-of-each-length-char.bin";
-    let f = "../../wip/eboot-hacking/eboot-fdec.self.elf";
+    let args: Vec<String> = std::env::args().collect();
+    let f = &args[1];
     let fh = File::open(f)?;
     let reader = BufReader::new(fh);
     let mut cursor = FileCursor {
