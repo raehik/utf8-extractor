@@ -42,7 +42,7 @@ static MIN_LEN: u64 = 3;
 
 fn main() -> std::io::Result<()> {
     //let f = "res/valid-utf8-one-of-each-length-char.bin";
-    let f = "../../wip/eboot-fdec.self.elf";
+    let f = "../../wip/eboot-hacking/eboot-fdec.self.elf";
     let fh = File::open(f)?;
     let reader = BufReader::new(fh);
     let mut cursor = FileCursor {
